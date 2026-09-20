@@ -9,7 +9,7 @@ FlowCast estimates flood and drought risk for U.S. watersheds by combining real-
 ## Features
 
 - Automated ingestion of USGS streamflow/gauge-height data and NOAA precipitation data
-- A combined flood/drought risk classification model covering multiple watersheds/regions, not just one location
+- A combined flood/drought risk classification model covering multiple watersheds/regions
 - Address-based lookup: enter an address, get current risk, historical trends, and forecasts
 - Predictions served via an API, rather than only existing as a notebook
 - Ongoing monitoring for model performance degradation with scheduled retraining
