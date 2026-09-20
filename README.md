@@ -62,4 +62,7 @@ MIT License — see LICENSE file.
 
 ## Contributors
 
-*(add group member names here)*
+- Andrew Farmer
+- Samip Khanal
+- Eric Testen
+- Sanchit Thakare
