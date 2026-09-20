@@ -17,14 +17,20 @@ FlowCast estimates flood and drought risk for U.S. watersheds by combining real-
 ## Project Structure
 
 ```
-/ingestion      - Scripts to pull USGS and NOAA data, upload to Amazon S3
-/geocoding      - Address-to-coordinates and nearest gauge/station matching
-/model          - Data preprocessing, feature engineering, model training using Sagemaker
-/api            - Lambda/API Gateway prediction endpoint code
-/app            - Streamlit user interface
-/notebooks      - Exploratory analysis
-/docs           - Project documentation
+/src
+  /flowcast
+    /ingestion    - Scripts to pull USGS and NOAA data, upload to S3
+    /geocoding    - Address-to-coordinates and nearest gauge/station matching
+    /model        - Data preprocessing, feature engineering, model training
+    /api          - Lambda/API Gateway prediction endpoint code
+/app              - Streamlit user interface
+/resources        - Small static reference files (e.g. county lists, HUC lookup tables)
+/notebooks        - Exploratory analysis
+/docs             - Project documentation
+/tests            - Unit tests
 ```
+
+Code under `/src/flowcast` is structured as an importable Python package. `/app`, `/notebooks`, and `/resources` sit outside it since they aren't library code.
 
 ## Setup
 
