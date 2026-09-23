@@ -58,8 +58,8 @@ print(risk)  # {'flood_risk': 'low', 'drought_risk': 'moderate'}
 
 ## Data Sources
 
-- USGS Water Data API (streamflow, gauge height)
-- NOAA Climate Data Online API (GHCN-Daily precipitation)
+- USGS Water Data API (streamflow, gauge height). Request a token here: https://api.waterdata.usgs.gov/signup/
+- NOAA Climate Data Online API (GHCN-Daily precipitation). Request a token here: https://www.ncdc.noaa.gov/cdo-web/token
 - U.S. Census Bureau Geocoder (address-to-coordinates)
 
 ## License
