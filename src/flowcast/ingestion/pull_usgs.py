@@ -39,7 +39,7 @@ COUNTIES = [
     ("Catawba", "North Carolina"),
     ("Cleveland", "North Carolina"),
     ("Stanly", "North Carolina"),
-    ("Chesterfield", "South Carolina"),
+    ("Chesterfield", "South Carolina")
 ]
 
 
