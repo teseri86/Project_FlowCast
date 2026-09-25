@@ -1,55 +1,53 @@
 """
-Upload local CSVs (from pull_usgs.py and pull_noaa.py) to the project's S3 bucket.
+Upload the backfill outputs to the project's S3 bucket, using the raw-zone layout:
+    raw/<source>/<dataset>/<run date>/<file name>
 
-Reads credentials from a .env file (see .env.example at the repo root).
-AWS credentials should be configured separately via `aws configure`.
-Run from the repo root with: python -m src.flowcast.ingestion.upload_to_s3
+Reads S3_BUCKET_NAME (and AWS credentials) from .env.
+Run from the repo root with:
+    python -m src.flowcast.ingestion.upload_to_s3
 """
 
 import os
-import io
-from datetime import datetime
+from datetime import date
 
 import boto3
-import pandas as pd
 from dotenv import load_dotenv
 
 load_dotenv()
 
 S3_BUCKET = os.environ["S3_BUCKET_NAME"]
-s3_client = boto3.client("s3")
+
+# local file -> (source, dataset) folder in S3
+UPLOADS = {
+    os.path.join("resources", "usgs_monitoring_locations.csv"): ("usgs", "monitoring_locations"),
+    os.path.join("data", "usgs_daily_series.csv"): ("usgs", "daily_series"),
+    os.path.join("data", "usgs_daily_2020_present.csv"): ("usgs", "daily_values"),
+    os.path.join("data", "usgs_active_sites.csv"): ("usgs", "active_sites"),
+    os.path.join("data", "site_weather_cell_map.csv"): ("openmeteo", "site_cell_map"),
+    os.path.join("data", "weather_daily_2020_present.csv"): ("openmeteo", "daily_weather"),
+}
 
 
-def upload_dataframe_to_s3(df: pd.DataFrame, s3_key: str):
-    """Upload a pandas DataFrame directly to S3 as a CSV, no local file needed."""
-    csv_buffer = io.StringIO()
-    df.to_csv(csv_buffer, index=False)
-    s3_client.put_object(
-        Bucket=S3_BUCKET,
-        Key=s3_key,
-        Body=csv_buffer.getvalue(),
-    )
-    print(f"Uploaded to s3://{S3_BUCKET}/{s3_key}")
+def upload_all():
+    s3 = boto3.client("s3")
+    run_date = date.today().isoformat()
 
+    # Today's daily-update pulls (from daily_update.py), if any, so S3 keeps a
+    # dated copy of exactly what each update downloaded.
+    uploads = dict(UPLOADS)
+    uploads[os.path.join("data", "raw", "usgs_updates", f"{run_date}.csv")] = ("usgs", "daily_updates")
+    uploads[os.path.join("data", "raw", "weather_updates", f"{run_date}.csv")] = ("openmeteo", "daily_updates")
 
-def upload_daily_pulls(usgs_path="resources/usgs_monitoring_locations.csv",
-                        noaa_path="resources/noaa_precipitation_by_site.csv"):
-    """Upload the day's USGS and NOAA pulls to S3, partitioned by source and date."""
-    run_date = datetime.now().strftime("%Y-%m-%d")
-
-    usgs_sites = pd.read_csv(usgs_path)
-    upload_dataframe_to_s3(
-        usgs_sites,
-        f"raw/usgs/monitoring_locations/{run_date}/usgs_monitoring_locations.csv",
-    )
-
-    noaa_precip = pd.read_csv(noaa_path)
-    upload_dataframe_to_s3(
-        noaa_precip,
-        f"raw/noaa/precipitation/{run_date}/noaa_precipitation_by_site.csv",
-    )
+    for local_path, (source, dataset) in uploads.items():
+        if not os.path.exists(local_path):
+            print(f"SKIPPED (not found yet): {local_path}")
+            continue
+        key = f"raw/{source}/{dataset}/{run_date}/{os.path.basename(local_path)}"
+        s3.upload_file(local_path, S3_BUCKET, key)  # streams from disk; handles large files
+        size_mb = os.path.getsize(local_path) / 1_000_000
+        print(f"Uploaded {local_path} ({size_mb:.1f} MB) -> s3://{S3_BUCKET}/{key}")
 
 
 if __name__ == "__main__":
-    upload_daily_pulls()
-    print("\nAll files uploaded successfully.")
+    upload_all()
+    print("\nDone.")

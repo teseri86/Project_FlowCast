@@ -1,5 +1,8 @@
 """
-Pull USGS monitoring location and daily streamflow data for a list of counties.
+Pull USGS monitoring locations
+
+This pulls a complete list of active and inactive sites 
+in the specified counties surrounding Mecklenburg County, NC.
 
 Reads credentials from a .env file (see .env.example at the repo root).
 Run from the repo root with: python -m src.flowcast.ingestion.pull_usgs
@@ -97,16 +100,6 @@ def get_monitoring_locations(counties=COUNTIES):
         return pd.DataFrame()
 
     return pd.concat(all_sites, ignore_index=True)
-
-
-def get_daily_values(site_id, parameter_code="00060", start_date=None, end_date=None):
-    """Fetch daily values (default: discharge/streamflow) for a single site."""
-    daily, meta = waterdata.get_daily(
-        monitoring_location_id=site_id,
-        parameter_code=parameter_code,
-        time=(start_date, end_date) if start_date and end_date else None,
-    )
-    return daily
 
 
 if __name__ == "__main__":
