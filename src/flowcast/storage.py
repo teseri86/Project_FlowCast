@@ -45,6 +45,14 @@ DATASETS = {
     "official_flood_days": ("data/validation/official_flood_days.csv",   "processed/validation"),
     "usdm_county_weekly":  ("data/validation/usdm_county_weekly.csv",    "processed/validation"),
     "drought_check_weekly": ("data/validation/drought_check_weekly.csv", "processed/validation"),
+    # ---- model results: written by train_gradient_boosting.py
+    "model_metrics":       ("data/model/gradient_boosting_metrics.csv",            "processed/model"),
+    "feature_importance":  ("data/model/gradient_boosting_feature_importance.csv", "processed/model"),
+    "level_report":        ("data/model/gradient_boosting_level_report.csv",       "processed/model"),
+    "scenario_predictions": ("data/model/gradient_boosting_scenarios.csv",         "processed/model"),
+    # ---- cross-validation results: written by cross_validate.py
+    "cv_results":          ("data/model/cv_results.csv",                           "processed/model"),
+    "cv_summary":          ("data/model/cv_summary.csv",                           "processed/model"),
 }
 
 

@@ -28,6 +28,9 @@ KEY IDEAS (plain language)
      "peek" at the day before and after each test day. Instead: train on
      2020-2024, test on 2025-present, the way it will actually be used (learn
      from the past, predict the future).
+     GAP: the last HORIZON_DAYS training days are dropped, because their answers
+     (the river HORIZON_DAYS later) fall inside the test period.
+     cross_validate.py reuses build_table() with several split dates.
 
   3. Three target columns, so the team can pick the model type later:
        target_pct      0-100 score, HORIZON_DAYS ahead          (regression)
@@ -96,9 +99,10 @@ def load_river():
 
 
 # ------------------------------------------ Step 2: level -> percentile
-def add_percentiles(df):
-    """Score each day 0-100 against that site's TRAINING-period history."""
-    split = pd.Timestamp(SPLIT_DATE)
+def add_percentiles(df, split_date=SPLIT_DATE, verbose=True):
+    """Score each day 0-100 against that site's TRAINING-period history
+    (days before split_date only, so test years never shape the scale)."""
+    split = pd.Timestamp(split_date)
     pct = pd.Series(np.nan, index=df.index)
     kept_sites = []
     for site, rows in df.groupby("monitoring_location_id"):
@@ -113,28 +117,39 @@ def add_percentiles(df):
         kept_sites.append(site)
 
     dropped = df["monitoring_location_id"].nunique() - len(kept_sites)
-    if dropped:
+    if dropped and verbose:
         print(f"  Dropped {dropped} site(s) with under {MIN_TRAIN_DAYS} days of training history.")
     df["level_pct"] = pct.where(df["level_value"].notna())
     return df[df["monitoring_location_id"].isin(kept_sites)].copy()
 
 
 # -------------------------------------------------- Step 3: add weather
-def add_weather(df):
+def load_weather():
+    """The site -> grid square map and the daily weather, ready to join."""
     cell_map = read_dataset("weather_cell_map", dtype={"monitoring_location_id": str, "cell_id": str})
     weather = read_dataset("weather_daily", dtype={"cell_id": str})
     weather["date"] = pd.to_datetime(weather["date"])
     weather = weather.drop(columns=["grid_latitude", "grid_longitude"], errors="ignore")
+    return cell_map, weather
+
+
+def load_sites():
+    return read_dataset("usgs_active_sites", dtype={"monitoring_location_id": str})
+
+
+def add_weather(df, cell_map=None, weather=None, verbose=True):
+    if cell_map is None or weather is None:
+        cell_map, weather = load_weather()
 
     df = df.merge(cell_map[["monitoring_location_id", "cell_id"]], on="monitoring_location_id", how="left")
     df = df.merge(weather, on=["cell_id", "date"], how="left")
-    missing = df["precipitation_sum"].isna().mean()
-    print(f"  Days with no matching weather: {missing:.1%}")
+    if verbose:
+        print(f"  Days with no matching weather: {df['precipitation_sum'].isna().mean():.1%}")
     return df
 
 
 # ------------------------------------------- Step 4: features and targets
-def add_features_and_targets(df):
+def add_features_and_targets(df, sites=None):
     df = df.sort_values(["monitoring_location_id", "date"]).reset_index(drop=True)
     g = df.groupby("monitoring_location_id", group_keys=False)
 
@@ -173,7 +188,8 @@ def add_features_and_targets(df):
 
     # Season and site size.
     df["month"] = df["date"].dt.month
-    sites = read_dataset("usgs_active_sites", dtype={"monitoring_location_id": str})
+    if sites is None:
+        sites = load_sites()
     df = df.merge(sites[["monitoring_location_id", "drainage_area", "county_name"]],
                   on="monitoring_location_id", how="left")
     df["log_drainage_area"] = np.log1p(pd.to_numeric(df["drainage_area"], errors="coerce"))
@@ -198,29 +214,47 @@ ID_COLUMNS = ["monitoring_location_id", "date", "split", "county_name", "cell_id
 TARGET_COLUMNS = ["target_pct", "target_level7", "target_level3"]
 
 
-def main():
-    print("Step 1: loading river data...")
-    df = load_river()
-    print(f"  {df['monitoring_location_id'].nunique()} sites, "
-          f"{df['date'].min().date()} to {df['date'].max().date()}")
+def assign_split(dates, split_date):
+    """train = before the split (minus the gap), test = on/after the split,
+    gap = the last HORIZON_DAYS before the split (their answers fall in the test period)."""
+    split = pd.Timestamp(split_date)
+    gap_start = split - pd.Timedelta(days=HORIZON_DAYS)
+    return np.select([dates < gap_start, dates < split], ["train", "gap"], default="test")
 
-    print("Step 2: converting river levels to 0-100 scores (per site)...")
-    df = add_percentiles(df)
 
-    print("Step 3: adding weather...")
-    df = add_weather(df)
+def build_table(river, split_date=SPLIT_DATE, cell_map=None, weather=None, sites=None, verbose=True):
+    """Everything after loading: scores (for this split date), weather, features,
+    targets, and the train/gap/test label. Gap rows are removed.
 
-    print(f"Step 4: building features and {HORIZON_DAYS}-day-ahead targets...")
-    df = add_features_and_targets(df)
+    `river` is the output of load_river(). Pass preloaded cell_map/weather/sites to
+    avoid re-downloading them (cross_validate.py does this for each round)."""
+    df = add_percentiles(river.copy(), split_date, verbose=verbose)
+    df = add_weather(df, cell_map, weather, verbose=verbose)
+    df = add_features_and_targets(df, sites)
 
     # A row is usable only if we know today's level and the level HORIZON days later.
     before = len(df)
     df = df.dropna(subset=["level_pct", "target_pct"])
-    print(f"  Kept {len(df):,} of {before:,} rows (dropped days missing today's or the future level).")
-
-    df["split"] = np.where(df["date"] < pd.Timestamp(SPLIT_DATE), "train", "test")
+    df["split"] = assign_split(df["date"], split_date)
+    gap_rows = (df["split"] == "gap").sum()
+    df = df[df["split"] != "gap"]
+    if verbose:
+        print(f"  Kept {len(df):,} of {before:,} rows (dropped days missing today's or the future level, "
+              f"and {gap_rows:,} gap rows).")
+    df = df.copy()
     df["date"] = df["date"].dt.strftime("%Y-%m-%d")
-    df = df[ID_COLUMNS + FEATURE_COLUMNS + TARGET_COLUMNS]
+    return df[ID_COLUMNS + FEATURE_COLUMNS + TARGET_COLUMNS]
+
+
+def main():
+    print("Step 1: loading river data...")
+    river = load_river()
+    print(f"  {river['monitoring_location_id'].nunique()} sites, "
+          f"{river['date'].min().date()} to {river['date'].max().date()}")
+
+    print(f"Steps 2-4: 0-100 scores, weather, features and {HORIZON_DAYS}-day-ahead targets "
+          f"(split date {SPLIT_DATE})...")
+    df = build_table(river, SPLIT_DATE)
 
     print("\nSaving...")
     write_dataset("training_table", df)
