@@ -10,21 +10,22 @@ This script asks two questions:
      score low?
 
 HOW TO RUN (from the repo root, after build_training_table.py)
-    python -m src.flowcast.model.validate_labels
+    python -m src.flowcast.model.validate_labels            # read from S3 (default)
+    python -m src.flowcast.model.validate_labels --local    # local data/ folder only
 
-OUTPUTS (data/validation/)
+OUTPUTS (data/validation/, also uploaded to S3: processed/validation/<today>/)
     nws_flood_stages.csv        official flood stages for each gauge that has them
     flood_check_by_gauge.csv    per gauge: official flood days vs our flood labels
     official_flood_days.csv     every gauge-day at or above an official flood stage
     usdm_county_weekly.csv      Drought Monitor % of each county in drought, weekly
     drought_check_weekly.csv    per county-week: Drought Monitor vs our scores
 
-LIMITS
+LIMITATIONS (worth mentioning in the write-up)
   - We only have DAILY AVERAGE gauge height. A river can pass flood stage for a few
     hours and still average below it, so official flood days are undercounted.
   - Not every USGS gauge has NWS flood stages (mostly larger rivers do).
   - The Drought Monitor describes whole counties and blends many signals (soil,
-    rain, rivers); one creek can disagree with its county
+    rain, rivers); one creek can disagree with its county.
 """
 
 import io
@@ -36,11 +37,10 @@ import numpy as np
 import pandas as pd
 import requests
 
+from src.flowcast.storage import read_dataset, write_dataset
+
 DATA_DIR = "data"
 OUT_DIR = os.path.join(DATA_DIR, "validation")
-TRAINING_FILE = os.path.join(DATA_DIR, "training_table.csv")
-USGS_FILE = os.path.join(DATA_DIR, "usgs_daily_2020_present.csv")
-SITES_FILE = os.path.join(DATA_DIR, "usgs_active_sites.csv")
 
 NWPS_URL = "https://api.water.noaa.gov/nwps/v1/gauges/{}"
 USDM_URL = ("https://usdmdataservices.unl.edu/api/CountyStatistics/"
@@ -64,9 +64,9 @@ COUNTY_FIPS = {
 
 def load_scores():
     """Our daily 0-100 score per gauge (level_pct = that day's score)."""
-    t = pd.read_csv(TRAINING_FILE, dtype={"monitoring_location_id": str},
-                    usecols=["monitoring_location_id", "date", "level_pct", "county_name"])
-    sites = pd.read_csv(SITES_FILE, dtype={"monitoring_location_id": str})
+    t = read_dataset("training_table", dtype={"monitoring_location_id": str},
+                     usecols=["monitoring_location_id", "date", "level_pct", "county_name"])
+    sites = read_dataset("usgs_active_sites", dtype={"monitoring_location_id": str})
     return t.merge(sites[["monitoring_location_id", "state_name", "monitoring_location_name"]],
                    on="monitoring_location_id", how="left")
 
@@ -126,12 +126,12 @@ def official_category(df):
 def flood_check(scores):
     site_ids = sorted(scores["monitoring_location_id"].unique())
     stages = get_flood_stages(site_ids)
-    stages.to_csv(os.path.join(OUT_DIR, "nws_flood_stages.csv"), index=False)
+    write_dataset("nws_flood_stages", stages)
     if stages.empty:
         print("  No gauges with flood stages - skipping flood check.")
         return
 
-    usgs = pd.read_csv(USGS_FILE, dtype={"monitoring_location_id": str, "parameter_code": str})
+    usgs = read_dataset("usgs_daily", dtype={"monitoring_location_id": str, "parameter_code": str})
     gh = (usgs[usgs["parameter_code"] == "00065"]
           .groupby(["monitoring_location_id", "time"])["value"].mean()
           .rename("gauge_height_ft").reset_index().rename(columns={"time": "date"}))
@@ -146,7 +146,7 @@ def flood_check(scores):
     events = df[df["official"] != "none"][
         ["date", "monitoring_location_id", "monitoring_location_name", "gauge_height_ft",
          "official", "level_pct", "our_label"]].sort_values(["date", "monitoring_location_id"])
-    events.to_csv(os.path.join(OUT_DIR, "official_flood_days.csv"), index=False)
+    write_dataset("official_flood_days", events)
 
     print(f"\n  Compared {len(df):,} gauge-days at {df['monitoring_location_id'].nunique()} gauges.")
     print("\n  QUESTION 1: On official high-water days, what did our labels say?")
@@ -169,7 +169,7 @@ def flood_check(scores):
         our_flood_level_days=("level_pct", lambda s: (s >= 90).sum()),
         our_severe_days=("level_pct", lambda s: (s >= 99).sum()),
     ).reset_index()
-    per_gauge.to_csv(os.path.join(OUT_DIR, "flood_check_by_gauge.csv"), index=False)
+    write_dataset("flood_check_by_gauge", per_gauge)
 
     if not events.empty:
         print("\n  Biggest official flood events (most gauges at action stage or higher on one day):")
@@ -294,7 +294,7 @@ def drought_check(scores):
     usdm = pd.concat(frames, ignore_index=True)
     usdm["dsci"] = usdm[["d0", "d1", "d2", "d3", "d4"]].sum(axis=1)  # 0 (none) to 500 (all D4)
     usdm["usdm_category"] = usdm.apply(usdm_category, axis=1)
-    usdm.to_csv(os.path.join(OUT_DIR, "usdm_county_weekly.csv"), index=False)
+    write_dataset("usdm_county_weekly", usdm)
 
     # Our side: average score of each county's gauges over each Drought Monitor week.
     scores["date"] = pd.to_datetime(scores["date"])
@@ -308,7 +308,7 @@ def drought_check(scores):
                          "usdm_category": wk["usdm_category"], "usdm_pct_d1_or_worse": wk["d1"],
                          "usdm_dsci": wk["dsci"]})
     weekly = pd.DataFrame(rows)
-    weekly.to_csv(os.path.join(OUT_DIR, "drought_check_weekly.csv"), index=False)
+    write_dataset("drought_check_weekly", weekly)
 
     print(f"  Compared {len(weekly):,} county-weeks.")
     print("\n  QUESTION: When the Drought Monitor said a county was in drought, did our gauges score low?")
@@ -333,4 +333,9 @@ def main():
 
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--local", action="store_true", help="read/write the local data/ folder only (no S3)")
+    if parser.parse_args().local:
+        os.environ["FLOWCAST_DATA_SOURCE"] = "local"
     main()

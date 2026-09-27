@@ -3,15 +3,15 @@ Build the model's training table: one row per USGS site per day, with
   - FEATURES: what we know on that day (river level, recent weather, season)
   - TARGETS:  how high the river is HORIZON_DAYS later (what the model learns to predict)
 
-HOW TO RUN (from the repo root, after both backfills are done)
-    python -m src.flowcast.model.build_training_table
+HOW TO RUN (from the repo root, after the ingestion data is in S3)
+    python -m src.flowcast.model.build_training_table            # read from S3 (default)
+    python -m src.flowcast.model.build_training_table --local    # read from the local data/ folder
 
-INPUT FILES (from the ingestion scripts)
-    data/usgs_daily_2020_present.csv, data/usgs_active_sites.csv,
-    data/site_weather_cell_map.csv, data/weather_daily_2020_present.csv
+INPUTS (newest copies in S3, via src/flowcast/storage.py)
+    usgs_daily, usgs_active_sites, weather_cell_map, weather_daily
 
 OUTPUT
-    data/training_table.csv
+    data/training_table.csv, also uploaded to S3: processed/training_table/<today>/
 
 KEY IDEAS (plain language)
   1. River level as a PERCENTILE (0-100), per site.
@@ -30,41 +30,23 @@ KEY IDEAS (plain language)
      from the past, predict the future).
 
   3. Three target columns, so the team can pick the model type later:
-       target_pct      0-100 score, HORIZON_DAYS ahead          (regression) (I'd go with this one)
+       target_pct      0-100 score, HORIZON_DAYS ahead          (regression)
        target_level7   7 levels, severe drought ... very high flow (classifier)
        target_level3   drought / normal / high water             (classifier)
-
-    Each model trains on ONLY on their respective target column. Please remember not to use ANY of the target columns as features.
-    PREVENT DATA LEAKAGE!
-
-    Be explicit with what features are being used.
-
-    *Example script:
-
-    df = pd.read_csv("data/training_table.csv", dtype={"monitoring_location_id": str})
-    train = df[df["split"] == "train"]
-    test  = df[df["split"] == "test"]
-
-    X_train, X_test = train[FEATURE_COLUMNS], test[FEATURE_COLUMNS]
-    y_train, y_test = train["target_pct"], test["target_pct"]   # swap in the one target you're using
 """
 
+import argparse
 import os
 
 import numpy as np
 import pandas as pd
 
+from src.flowcast.storage import read_dataset, write_dataset
+
 # ---------------------------------------------------------------- settings
 HORIZON_DAYS = 3             # predict the river this many days ahead
 SPLIT_DATE = "2025-01-01"    # train on days before this, test on this day and after
 MIN_TRAIN_DAYS = 365         # a site needs at least a year of training history
-
-DATA_DIR = "data"
-USGS_FILE = os.path.join(DATA_DIR, "usgs_daily_2020_present.csv")
-SITES_FILE = os.path.join(DATA_DIR, "usgs_active_sites.csv")
-CELL_MAP_FILE = os.path.join(DATA_DIR, "site_weather_cell_map.csv")
-WEATHER_FILE = os.path.join(DATA_DIR, "weather_daily_2020_present.csv")
-OUTPUT_FILE = os.path.join(DATA_DIR, "training_table.csv")
 
 # 7 levels: (upper percentile limit, label). Same cut-offs the app will use.
 # Drought names were checked against the U.S. Drought Monitor and hold up.
@@ -91,7 +73,7 @@ def load_river():
     """One row per site per day, with streamflow and gauge height side by side,
     on a complete calendar (missing days become empty rows, so "7 days ago"
     always means 7 calendar days, not 7 rows)."""
-    usgs = pd.read_csv(USGS_FILE, dtype={"monitoring_location_id": str, "parameter_code": str})
+    usgs = read_dataset("usgs_daily", dtype={"monitoring_location_id": str, "parameter_code": str})
     usgs["date"] = pd.to_datetime(usgs["time"])
     wide = usgs.pivot_table(index=["monitoring_location_id", "date"], columns="parameter_code",
                             values="value", aggfunc="mean")
@@ -139,8 +121,8 @@ def add_percentiles(df):
 
 # -------------------------------------------------- Step 3: add weather
 def add_weather(df):
-    cell_map = pd.read_csv(CELL_MAP_FILE, dtype={"monitoring_location_id": str, "cell_id": str})
-    weather = pd.read_csv(WEATHER_FILE, dtype={"cell_id": str})
+    cell_map = read_dataset("weather_cell_map", dtype={"monitoring_location_id": str, "cell_id": str})
+    weather = read_dataset("weather_daily", dtype={"cell_id": str})
     weather["date"] = pd.to_datetime(weather["date"])
     weather = weather.drop(columns=["grid_latitude", "grid_longitude"], errors="ignore")
 
@@ -191,7 +173,7 @@ def add_features_and_targets(df):
 
     # Season and site size.
     df["month"] = df["date"].dt.month
-    sites = pd.read_csv(SITES_FILE, dtype={"monitoring_location_id": str})
+    sites = read_dataset("usgs_active_sites", dtype={"monitoring_location_id": str})
     df = df.merge(sites[["monitoring_location_id", "drainage_area", "county_name"]],
                   on="monitoring_location_id", how="left")
     df["log_drainage_area"] = np.log1p(pd.to_numeric(df["drainage_area"], errors="coerce"))
@@ -240,11 +222,10 @@ def main():
     df["date"] = df["date"].dt.strftime("%Y-%m-%d")
     df = df[ID_COLUMNS + FEATURE_COLUMNS + TARGET_COLUMNS]
 
-    tmp = OUTPUT_FILE + ".tmp"
-    df.to_csv(tmp, index=False)
-    os.replace(tmp, OUTPUT_FILE)
+    print("\nSaving...")
+    write_dataset("training_table", df)
 
-    print(f"\nSaved {len(df):,} rows x {len(df.columns)} columns to {OUTPUT_FILE}")
+    print(f"\n{len(df):,} rows x {len(df.columns)} columns")
     print(f"  Sites: {df['monitoring_location_id'].nunique()}  |  "
           f"Train rows: {(df['split'] == 'train').sum():,}  |  Test rows: {(df['split'] == 'test').sum():,}")
     print("\n  How often each level happens (share of rows):")
@@ -258,4 +239,8 @@ def main():
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--local", action="store_true", help="read/write the local data/ folder only (no S3)")
+    if parser.parse_args().local:
+        os.environ["FLOWCAST_DATA_SOURCE"] = "local"
     main()
