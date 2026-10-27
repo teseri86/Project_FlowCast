@@ -9,6 +9,9 @@ data/
 *.pkl
 *.parquet
 !requirements.txt
+# ...except the small quickstart sample (committed on purpose)
+!bin/sample_data/*.csv
+bin/quickstart_output/
 
 # Python
 __pycache__/

@@ -3,6 +3,10 @@
 High-water and drought prediction for rivers and streams in Mecklenburg County, NC and 15 surrounding
 NC/SC counties, built on USGS river readings and Open-Meteo weather, with a serverless AWS pipeline.
 
+**Quick links:** [Get started](#get-started-train-the-demo-and-get-a-prediction-for-an-address) ·
+[Code documentation](docs/documentation.md) · [Examples in bin/](bin/) · [License](LICENSE) ·
+[Contact](#contact)
+
 **Status:** prototype. The data pipeline, training data, model evaluation, final models and a local
 prediction script work. The AWS prediction API, daily automation, monitoring and the Streamlit app are
 not built yet. FlowCast is **not** an official warning service; see [Limitations](#limitations).
@@ -60,11 +64,17 @@ src/flowcast/
   api/
     predict.py                   address or gauge -> both answers (core of the future API)
   geocoding/                     (empty - geocoding currently lives in api/predict.py)
+bin/
+  quickstart.py                  train both models on a small sample, then predict for an address - no keys or AWS
+  run_pipeline.ps1 / .sh         the full pipeline in order (Windows / macOS-Linux)
+  sample_data/                   3 gauges' streamflow, weather and series IDs, 2007 to Oct 2026 (for the quickstart)
+docs/
+  documentation.md               what every module and major function does
 notebooks/
   eda_raw_data.ipynb             exploratory analysis; section 9 lists the design decisions
 resources/                       USGS candidate site list
 data/                            local data files (not in git)
-app/  docs/  tests/              (not built yet)
+app/  tests/                     (not built yet)
 ```
 
 ## Setup
@@ -83,6 +93,34 @@ app/  docs/  tests/              (not built yet)
    python -m pip install ipykernel
    python -m ipykernel install --user --name flowcast_env --display-name "Python (flowcast_env)"
    ```
+
+## Get started: train the demo and get a prediction for an address
+
+After the setup steps 1–2 above (no `.env`, API keys or AWS needed), from the repo root:
+```
+python bin/quickstart.py --address "600 E 4th St, Charlotte, NC"
+```
+(Or run `python bin/quickstart.py` and type an address when asked.) In about a minute it:
+
+1. **Trains and tests** a decision tree and boosted trees on a small sample included in the repo
+   (3 gauges: Briar Creek, Coddle Creek and the Catawba River, 2007 to Oct 2026), and prints how they did on
+   2024 to Oct 2026 against "same as today".
+2. **Trains the demo models** on all sample years and saves them to `bin/quickstart_output/`.
+3. **Predicts for your address**, like the app: finds the nearest sample gauge, downloads its latest
+   USGS readings and the Open-Meteo rain forecast, and prints both answers:
+```
+Address found: 600 E 4TH ST, CHARLOTTE, NC, 28202 (35.2215, -80.8378)
+
+Gauge: BRIAR CREEK NEAR CHARLOTTE, NC (USGS-0214642825), 3.9 miles away
+Latest complete day: ...  reading ... cfs  (... of past days; 7-day average ... at this time of year)
+  High water on ...: no   [boosted model]
+      in the sample test: caught about 67% of high water days; about 68% of its warnings were right
+  Drought on ...: no   [boosted model]
+      in the sample test: caught about 82% of drought days; about 67% of its warnings were right
+```
+The demo only knows the 3 sample gauges, so use an address in or near Charlotte, Davidson or Rock Hill.
+No internet? Add `--offline` to replay a recent day from the sample. The full app
+(`src/flowcast/api/predict.py`) covers 82 gauges.
 
 ## Running the pipeline
 
@@ -110,6 +148,9 @@ python -m src.flowcast.model.build_training_data    # ~1 min; optional (the next
 python -m src.flowcast.model.compare_models         # ~25 min; the 9-year test
 python -m src.flowcast.model.train_final_models     # ~1-2 min; saves the final models to S3
 ```
+
+(All of these steps, in order: [`bin/run_pipeline.ps1`](bin/run_pipeline.ps1) or
+[`bin/run_pipeline.sh`](bin/run_pipeline.sh). What each function does: [docs/documentation.md](docs/documentation.md).)
 
 **4. A prediction:**
 ```
@@ -207,9 +248,13 @@ We thank the resource education specialist at the **Cabarrus County Soil and Wat
 for consulting on how to define high water and drought, and which metrics to utilise. Their recommendation, to judge high water against
 all days of the year but drought against the same time of year, is the labeling rule FlowCast uses.
 
+## Contact
+
+Questions about FlowCast: **[NAME]** ([EMAIL]). Or open an issue on this GitHub repository.
+
 ## License
 
-MIT License — see LICENSE file.
+MIT License — see the [LICENSE](LICENSE) file.
 
 ## Contributors
 
