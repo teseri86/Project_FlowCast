@@ -1,4 +1,11 @@
 """
+*** LEGACY / DEPRECATED - not part of the current pipeline. ***
+This checks the OLD labels (from the old training_table, built by the removed
+build_training_table.py). It still runs only while that old table exists in S3.
+Kept for its NWS flood-stage and Drought Monitor downloads and its county codes
+(COUNTY_FIPS, used by notebooks/eda_raw_data.ipynb), which may be reused to
+check the new labels later.
+
 Check our flood/drought labels against official sources:
   FLOODS   -> National Weather Service flood stages for each gauge (in feet)
   DROUGHTS -> U.S. Drought Monitor weekly county maps

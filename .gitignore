@@ -2,7 +2,9 @@
 .env
 *.pem
 
-# Data files (should live in S3, not git)
+# Data files and models (should live in S3, not git)
+data/
+*.joblib
 *.csv
 *.pkl
 *.parquet

@@ -38,8 +38,12 @@ DATASETS = {
     "usgs_active_sites":   ("data/usgs_active_sites.csv",                "raw/usgs/active_sites"),
     "weather_cell_map":    ("data/site_weather_cell_map.csv",            "raw/openmeteo/site_cell_map"),
     "weather_daily":       ("data/weather_daily_2020_present.csv",       "raw/openmeteo/daily_weather"),
+    # ---- reference zone: downloaded ONCE and never changes, so it is not under raw/ (upload_to_s3 skips it)
+    "usgs_history":        ("data/usgs_daily_2007_2019.csv",             "reference/usgs/daily_values_2007_2019"),
+    "weather_history":     ("data/weather_daily_2007_2019.csv",          "reference/openmeteo/daily_weather_2007_2019"),
     # ---- processed zone: written by our own scripts via write_dataset()
     "training_table":      ("data/training_table.csv",                   "processed/training_table"),
+    "training_data":       ("data/training_data.csv",                    "processed/training_data"),   # new pipeline (build_training_data.py)
     "nws_flood_stages":    ("data/validation/nws_flood_stages.csv",      "processed/validation"),
     "flood_check_by_gauge": ("data/validation/flood_check_by_gauge.csv", "processed/validation"),
     "official_flood_days": ("data/validation/official_flood_days.csv",   "processed/validation"),
@@ -53,6 +57,11 @@ DATASETS = {
     # ---- cross-validation results: written by cross_validate.py
     "cv_results":          ("data/model/cv_results.csv",                           "processed/model"),
     "cv_summary":          ("data/model/cv_summary.csv",                           "processed/model"),
+    # ---- model comparison (new pipeline): written by compare_models.py
+    "compare_results":     ("data/model/compare_results.csv",                      "processed/model"),
+    "compare_summary":     ("data/model/compare_summary.csv",                      "processed/model"),
+    # ---- final models (train_final_models.py); the .joblib/.json go to the same S3 folder
+    "ruler":               ("data/model/ruler.csv",                                "models/final"),
 }
 
 

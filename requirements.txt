@@ -3,3 +3,6 @@ pandas
 requests
 boto3
 python-dotenv
+joblib
+scikit-learn>=1.2
+numpy
