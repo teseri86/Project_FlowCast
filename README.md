@@ -250,7 +250,13 @@ all days of the year but drought against the same time of year, is the labeling 
 
 ## Contact
 
-Questions about FlowCast: **[NAME]** ([EMAIL]). Or open an issue on this GitHub repository.
+Questions about FlowCast:  
+Eric: etesten@charlotte.edu  
+Andrew: afarme28@charlotte.edu  
+Sanchit: sthakar3@charlotte.edu  
+Samip: skhanal4@charlotte.edu  
+  
+Or open an issue on this GitHub repository.
 
 ## License
 
